@@ -39,6 +39,27 @@ enum commands { set_0   = 0,
 enum direction {in, out};
 enum state {low, high};
 
+
+const uint8_t active_pins[10] = {
+    0b1111110,
+    0b0110000,
+    0b1101101,
+    0b1111001,
+    0b0110011,
+    0b1011011,
+    0b1011111,
+    0b1110000,
+    0b1111111,
+    0b1111011,
+    0b0000000
+};
+
+
+const uint8_t pins[7] = {
+    17, 27, 22, 23, 24, 25, 12
+};
+
+
 /*
 * struct gpio_7seg_dev - Per gpio pin data structure
 * @cdev: instance of struct cdev
@@ -210,6 +231,38 @@ static ssize_t gpio_7seg_read ( struct file *filp, char *buf, size_t count, loff
     /* get count amount of values from GPIO device */
     for (retval = 0; retval < count; ++retval)
     {
+
+	// read whole 7 seg display
+	if (gpio == 1) {
+	    // get all values
+	    uint8_t i, value = 0;
+	    for (i = 0; i < 7; ++i) {
+		value <<= 1;
+		value &= gpio_get_value(pins[i]);
+	    }
+
+	    // compare to active states
+	    byte = '0';
+	    int valid_state = 0;
+	    for (i = 0; i < 11; ++i) {
+		if (value == active_pins[i]) {
+		    byte += i;
+		    valid_state = 1;
+		    break;
+		}
+	    }
+
+	    // check if 7 seg in valid state
+	    if (!valid_state) byte = '-';
+
+	    if (put_user(byte, buf + retval))
+		break;
+	    continue;
+	}
+
+
+
+
         /* use kernel gpio API functions to get
          * value of gpio by minor numer of device
          */
@@ -238,29 +291,11 @@ static ssize_t gpio_7seg_write ( struct file *filp, const char *buf, size_t coun
     char kbuf[BUF_SIZE];
     struct gpio_7seg_dev *gpio_7seg_devp = filp->private_data;
 
-    static uint8_t active_pins[10] = {
-	0b1111110,
-	0b0110000,
-	0b1101101,
-	0b1111001,
-	0b0110011,
-	0b1011011,
-	0b1011111,
-	0b1110000,
-	0b1111111,
-	0b1111011,
-	0b0000000
-    };
-
-    static uint8_t pins[7] = {
-	17, 27, 22, 23, 24, 25, 12
-    };
-
-
 
     /* get gpio device minor number 
     */
     gpio = iminor(filp->f_path.dentry->d_inode);
+    printk("gpio: %d", gpio);
 
     len = count < BUF_SIZE ? count-1 : BUF_SIZE-1;
 
@@ -279,13 +314,13 @@ static ssize_t gpio_7seg_write ( struct file *filp, const char *buf, size_t coun
      */
 
     int comm = which_command(kbuf);
-    if (0 <= comm <= 10) {
+    if (gpio == 1 && 0 <= comm <= 10) {
 	printk("[GPIO_7seg] - showing nuber - %d", comm);
         uint8_t pins_i, index = 0b1000000;
 	for (pins_i; pins_i < 7; ++pins_i) {
 	    if (active_pins[comm] & index) {
 		printk("setting high pin %d", pins[pins_i]);
-	        gpio_set_value(pins[pins_i], high);
+ 	        gpio_set_value(pins[pins_i], high);
             } else {
 		gpio_set_value(pins[pins_i], low);
 	    }
@@ -293,6 +328,12 @@ static ssize_t gpio_7seg_write ( struct file *filp, const char *buf, size_t coun
 	}
         //printk("[GPIO_7seg] - got to set\n");
         //gpio_set_value(12, high);
+    } else if (gpio != 1 && 0 <= comm <= 1) {
+	if (comm) {
+            gpio_set_value(gpio, high);
+	} else {
+	    gpio_set_value(gpio, low);
+	}
     } else {
         printk(KERN_ERR "[gpio_7seg] - Invalid input value\n");
         return -EINVAL;
